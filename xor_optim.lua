@@ -1,6 +1,5 @@
 --Learning XOR with Optim module.
 --based on: https://github.com/torch/nn/blob/master/doc/training.md
---Alex Walczak
 
 --first, start server to view outputs in web browser.
 --th -ldisplay.start 8000 0.0.0.0
