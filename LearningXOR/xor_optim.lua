@@ -1,12 +1,11 @@
 --Learning XOR with Optim module.
---based on: https://github.com/torch/nn/blob/master/doc/training.md
-
+--
 --first, start server to view outputs in web browser.
 --th -ldisplay.start 8000 0.0.0.0
-
+--
 --see Display module documentation https://github.com/szym/display 
 --for a simple intro on viewing images when code is running on a server.
-
+--
 --to run code:
 --'th xor_optim.lua [LR_DECAY_RATIO=1] [GRID_STEP=1] [GRID_RANGE=10]'
 --for example, this line shows nice images:
