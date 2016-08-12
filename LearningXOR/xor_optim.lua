@@ -11,16 +11,16 @@
 --'th xor_optim.lua [LR_DECAY_RATIO=1] [GRID_STEP=1] [GRID_RANGE=10]'
 --for example, this line shows nice images:
 --'th xor_optim.lua 1 .1 25'
-
+------------------------------------------------
 require'nn'
-torch = require'torch'
-image = require'image'
-display = require'display'
+local torch = require'torch'
+local image = require'image'
+local display = require'display'
 display.configure{hostname = '0.0.0.0', port = 8000}
 
 --init model attributes
 local model = nn.Sequential();  --make a multi-layer perceptron
-local inputs = 2; local outputs = 1; local HUs = 20; --parameters
+local inputs = 2; local outputs = 1; local HUs = 20; --configure model parameters
 local learnRate = 0.01
 
 --build model structure
@@ -45,10 +45,8 @@ local batchSize = 128*4
 local batchInputs = torch.Tensor(batchSize, inputs) --128x2
 local batchLabels = torch.DoubleTensor(batchSize)
 
-local sigma = 10
-
 --writes into mem
-function createBatch() --randomly
+local function createBatch() --randomly
     for i=1,batchSize do
         local input = 10 * torch.randn(2) --adjusting the normal distbn
         local label = 1
@@ -74,7 +72,7 @@ local params, gradParams = model:getParameters()
 --(pre-existing references to original model params (weights + biases) will
 --no longer point to model weight and bias after this flttening.)
 
---training
+------------------------training------------------------
 
 --we'll use optim's SGD alg. to train our model. so, we'll need to provide its LR
 --via an optimization state table.
@@ -87,9 +85,9 @@ require'optim'
 require'xlua'
 
 local count = 1
-numEpochs = 500
-numBatches = 20 --== (dataset set / batchsize)
-total_iters = numEpochs * numBatches * batchSize
+local numEpochs = 500
+local numBatches = 20 --== (dataset set / batchsize)
+local total_iters = numEpochs * numBatches * batchSize
 
 for epoch=1,numEpochs do
     for batchNum=1,numBatches do
@@ -109,7 +107,7 @@ for epoch=1,numEpochs do
             
             local outputs = model:forward(batchInputs)--predn
             local loss = criterion:forward(outputs, batchLabels)
-            local dloss_doutput = criterion:backward(outputs, batchLabels) --kinda like an extension of our network
+            local dloss_doutput = criterion:backward(outputs, batchLabels) --like an extension of our network
             model:backward(batchInputs, dloss_doutput)--finds: dloss_douput * doutput_dweights = dloss_dweights [gradParams]
 
             return loss, gradParams
@@ -124,7 +122,7 @@ for epoch=1,numEpochs do
     optimState.learningRate = optimState.learningRate*(tonumber(arg[1]) or 1)
 end    
 
-x = torch.Tensor{
+local x = torch.Tensor{
     {0.5, 0.5},
     {-0.5, 0.5},
     {0.5, -0.5},
@@ -136,19 +134,18 @@ x = torch.Tensor{
 }
 print('input:')
 print(x)
-predn = model:forward(x)
+local predn = model:forward(x)
 print('raw output:')
 print(predn)
 
---create a grid of results and show image
-
+----------------create a grid of results and show image----------------
 require'gnuplot'
 
-N = tonumber(arg[3]) or 10
+local N = tonumber(arg[3]) or 10 -- shape
 print('Grid range (N):')
 print(N)
-step = tonumber(arg[2]) or 1
-_range = torch.range(-N, N, step)
+local step = tonumber(arg[2]) or 1
+local _range = torch.range(-N, N, step)
 len = #_range:storage()
 
 local Z = torch.Tensor(len, len)
