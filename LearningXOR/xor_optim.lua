@@ -18,6 +18,8 @@ local image = require'image'
 local display = require'display'
 display.configure{hostname = '0.0.0.0', port = 8000}
 
+------------------------configure model architecture and loss function------------------------
+
 --init model attributes
 local model = nn.Sequential();  --make a multi-layer perceptron
 local inputs = 2; local outputs = 1; local HUs = 20; --configure model parameters
@@ -37,6 +39,8 @@ local criterion = nn.MSECriterion()
 --given cur weights as a param. typically, feval is
 --defined inside our loop over batches and so has access
 --to cur minibatch data.
+
+------------------------create input data------------------------
 
 --create minibatch
 
@@ -158,4 +162,3 @@ end
 
 display.image(Z, {title = 'Raw output'})
 display.image(torch.sign(Z), {title = 'Signum(raw output)'})
-
