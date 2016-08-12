@@ -12,8 +12,9 @@ cmd:text('Options')
 cmd:option('-data','iris.txt','properly formatted data file, see comments')
 cmd:option('-levels',3,'maximum depth of tree')
 cmd:option('-bins',3,'maximum degree of split at node for numerical variables')
-cmd:option('-prop',0.1,'proportion of data to withhold and test on')
+cmd:option('-testprop',0.1,'proportion of data to withhold and test on')
 cmd:option('-trees',11,'number of trees to test')
+cmd:option('-bagging',true,'Whether to do feature bagging, i.e., random subspace selection with replacement')
 cmd:text()
 local params = cmd:parse(arg)
 
@@ -63,7 +64,7 @@ local data = {}
 local test_data = {}
 local inds = torch.randperm(#lines-data_starts_at+1) + data_starts_at-1
 
-local test_proportion = params.prop
+local test_proportion = params.testprop
 local num_test = torch.floor(test_proportion * inds:size(1))
 
 for i=1,inds:size(1) do
@@ -224,7 +225,7 @@ end
 
 local used_attrs = {}
 
-local feature_bagging = true
+local feature_bagging = params.bagging
 local function find_best_split(S)
     -- check all attributes
     -- find ununsed attribute with highest information gain
