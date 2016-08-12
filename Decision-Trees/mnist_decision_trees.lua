@@ -13,6 +13,7 @@ cmd:option('-levels',3,'maximum depth of tree')
 cmd:option('-bins',3,'maximum degree of split at node for numerical variables')
 cmd:option('-testprop',0.4,'proportion of data to withhold and test on')
 cmd:option('-trees',11,'number of trees to test')
+cmd:option('-bagging',true,'Whether to do feature bagging, i.e., random subspace selection with replacement')
 cmd:text()
 local params = cmd:parse(arg)
 
@@ -229,7 +230,7 @@ end
 
 local used_attrs = {}
 
-local feature_bagging = true
+local feature_bagging = params.bagging
 local function find_best_split(S)
     -- check all attributes
     -- find ununsed attribute with highest information gain
