@@ -7,7 +7,7 @@ Running:
 
   `th simple_decision_trees.lua -data iris.txt -testprop 0.35 -trees 8 -levels 5 -bins 3 -bagging`
   
-results in the construction of a committee of 8 trees which go no deeper than 5 levels deep and at each node make a maximum of a 3-way split (on numerical data). The dataset is `iris.txt` and the proportion of data withheld for testing is 0.35%.
+results in the construction of a committee of 8 trees which go no deeper than 5 levels deep and at each node make a maximum of a 3-way split (on numerical data). The dataset is `iris.txt` and the proportion of data withheld for testing is 35%.
 
 Use `mnist_decision_trees.lua` to run an implementation of a MNIST decision tree. (Download MNIST data from: http://pjreddie.com/projects/mnist-in-csv/)
 
@@ -15,4 +15,4 @@ Running:
 
 `th mnist_decision_trees.lua -data mnist_train.csv -testprop 0.35 -trees 8 -levels 5 -bins 3 -bagging`
 
-results in the construction of a committee of 8 trees which go no deeper than 5 levels deep and at each node make a maximum of a 3-way split (on numerical data). The dataset is `mnist_train.csv` and the proportion of data withheld for testing is 0.35%.
+results in the construction of a committee of 8 trees which go no deeper than 5 levels deep and at each node make a maximum of a 3-way split (on numerical data). The dataset is `mnist_train.csv` and the proportion of data withheld for testing is 35%.
