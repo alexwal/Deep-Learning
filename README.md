@@ -1,5 +1,5 @@
 # Deep-Learning
-### Select deep learning and computer vision code here.
+### Select deep learning and computer vision code.
 
 #### `LearnXOR`
 At some point, every machine learner should implement a network that learns XOR. The folder `LearnXOR` is my implementation from the early days.
