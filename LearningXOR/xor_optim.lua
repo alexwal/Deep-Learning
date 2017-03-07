@@ -106,7 +106,7 @@ for epoch=1,numEpochs do
         --Views into gradParams, calling model:backward(...)
         --implicitly updates its values.
         local function feval(params)
-            gradParams:zero()--zeros accumulation of grads (since sgd)
+            gradParams:zero()--zeros accumulation of grads (since sgd, and only want to consider current batch)
             
             local outputs = model:forward(batchInputs)--predn
             local loss = criterion:forward(outputs, batchLabels)
