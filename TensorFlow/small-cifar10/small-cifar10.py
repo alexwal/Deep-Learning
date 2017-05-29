@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import os
+from six.moves import xrange # pylint: disable=redefined-builtin
 
 '''
   # Train TF model on small cifar10 dataset.
@@ -78,7 +79,9 @@ data_sets = Read_data_sets('small-cifar10-data/',
 
 classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 batch_size = 16
-default_type = tf.float32
+default_dtype = tf.float32
+default_learning_rate = 1e-2
+im_H, im_W = 32, 32
 
 # UTILS:
 
@@ -96,6 +99,11 @@ def make_variable(name, shape, stddev=None, constant=None):
 def fill_feed_dict(data_set, images_pl, labels_pl):
   batch = data_set.next_batch(batch_size)
   return {images_pl: batch[0], labels_pl: batch[1]}
+
+def placeholder_inputs():
+  images_pl = tf.placeholder(default_dtype, shape=[None, im_H, im_W, 3])
+  labels_pl = tf.placeholder(tf.int32, shape=[None]) 
+  return images_pl, labels_pl
 
 # STAGES:
 
@@ -164,11 +172,15 @@ def inference(images):
   return logits
 
 def loss(logits, labels):
-  labels = tf.cast(labels, tf.int64)
+  labels = tf.cast(labels, tf.int32)
   cross_entropy = tf.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels, name='xent')
   return tf.reduce_mean(cross_entropy, 'mean_xent')
 
 def training(total_loss, learning_rate):
+  # Note: this isn't called over and over again when training; it's called
+  # once to build this part of the computational graph; the operations created
+  # here are repeated, which themselves increment global_step, update gradients, etc.
+  # (Only train_op which performs a minimizing update is repeated.)
   optimizer = tf.train.GradientDescentOptimizer(learning_rate)
   global_step = tf.Variable(0, name='global_step', trainable=False)
   train_op = optimizer.minimize(total_loss, global_step=global_step)
@@ -181,7 +193,42 @@ def evaluation(logits, labels):
 
 ###
 
+def do_eval(sess, eval_correct, images_pl, labels_pl, data_set):
+  '''Evaluation over one epoch (all samples) in data_set.'''
+  num_batches = len(data_set) // batch_size
+  num_samples = num_batches * batch_size
+  correct_count = 0
+  for batch in xrange(num_batches):
+    feed_dict = fill_feed_dict(data_set, images_pl, labels_pl)
+    correct_count += sess.run(eval_correct, feed_dict=feed_dict) # sess.run(WHAT_YOU_WANT_TO_KNOW, WHAT_YOU_NEED_TO_PROVIDE)
+  accuracy = float(correct_count) / num_samples
+  print('Num samples: %d, Num correct: %d, Accuracy: %0.04f' % (num_samples, correct_count, accuracy))
 
 def run_training():
+  # Build graph
+  images_pl, labels_pl = placeholder_inputs()
+  logits = inference(images_pl)
+  total_loss = loss(logits, labels_pl)
+  train_op = training(total_loss, default_learning_rate)
+  eval_correct = evaluation(logits, labels_pl)
+  
+  init = tf.global_variables_initializer()
+  sess.run(init)
+
+  for step in xrange(1000):
+    feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl)
+    _, loss_value = sess.run([train_op, total_loss], feed_dict=feed_dict) # discard train_op run output
+
+    if step % 100 == 0:
+      print("Step %d, step loss_value: %0.04f" % (step, loss_value))
+      print("Evaluating training data:")
+      do_eval(sess, eval_correct, images_pl, labels_pl, data_set.train)
+      print("Evaluating testing data:")
+      do_eval(sess, eval_correct, images_pl, labels_pl, data_set.test)
+
+if __name__ == '__main__':
+  run_training()
+
+
 
 
