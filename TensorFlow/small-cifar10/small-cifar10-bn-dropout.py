@@ -87,45 +87,36 @@ data_sets = Read_data_sets('small-cifar10-data/',
 classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 im_H, im_W = 32, 32
 batch_size = 16
-default_learning_rate = 1e-2
+default_learning_rate = 1e-3
 default_dtype = tf.float32
 
 # UTILS:
 
-def spatial_batch_norm(inputs, train_phase, decay=0.999, name="SBN", epsilon=1e-3):
+def spatial_batch_norm(inputs, train_phase, decay=0.75, name="SBN", scope=None, epsilon=1e-3):
     # train_phase: a tf.placeholder(tf.bool) that switches between training/testing (ie using batch or pop mean/var)
-    channels = inputs.get_shape()[-1]
-    scale = tf.Variable(tf.ones([channels]))
-    offset = tf.Variable(tf.zeros([channels]))
+    # Require scope: so that we create/update unique mean/var/offset/scale variables for each instantiated layer.
+    #                otherwise, we'd reuse mean/var/etc variables between different layers
+    assert scope is not None, 'Need scope definition.'
 
-    ''' OLD:
-    def if_train():
-        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # computes mean across these axes (all but over channels)
-        # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
-        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
-        train_var  = tf.assign(pop_var,  pop_var  * decay + batch_var  * (1 - decay))
-        with tf.control_dependencies([train_mean, train_var]): # makes sure the moving averages are updated during training (absent below:)
-          return tf.identity(batch_mean), tf.identity(batch_var)
-    def if_not_train():
-        return tf.identity(pop_mean), tf.identity(pop_var)
-    '''
-
-    # NEW:
-    batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # computes mean across these axes (all but over channels)
-    ema = tf.train.ExponentialMovingAverage(decay=0.75)
-    def if_train():
-        # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
-        maintain_averages_op = ema.apply([batch_mean, batch_var]) # creates shadow variables (holding averages) for all list elements
-        # Create an op that will update the moving averages before performing normalization. 
-        with tf.control_dependencies([maintain_averages_op]): # makes sure the moving averages are updated during training (absent below:)
-          return tf.identity(batch_mean), tf.identity(batch_var)
-    def if_not_train():
-        return ema.average(batch_mean), ema.average(batch_var) # returns the tracked average of batch mean/var = approx. pop mean/var.
-    mean, var = tf.cond(train_phase, if_train, if_not_train)
+    with tf.variable_scope(scope):
+      channels = inputs.get_shape()[-1]
+      scale = tf.Variable(tf.ones([channels]))
+      offset = tf.Variable(tf.zeros([channels]))
+      batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # computes mean across these axes (all but over channels)
+      ema = tf.train.ExponentialMovingAverage(decay=decay)
+      def if_train():
+          # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
+          maintain_averages_op = ema.apply([batch_mean, batch_var]) # creates shadow variables (holding averages) for all list elements
+          # Create an op that will update the moving averages before performing normalization. 
+          with tf.control_dependencies([maintain_averages_op]): # makes sure the moving averages are updated during training (absent below:)
+            return tf.identity(batch_mean), tf.identity(batch_var)
+      def if_not_train():
+          return ema.average(batch_mean), ema.average(batch_var) # returns the tracked average of batch mean/var = approx. pop mean/var.
+      mean, var = tf.cond(train_phase, if_train, if_not_train)
     return tf.nn.batch_normalization(inputs, mean, var, offset, scale, epsilon, name=name)
 
 def make_var(name, shape, stddev=None, constant=None):
-  # On CPU. Later: add weight regularization
+  # Variable on CPU. Later: add weight regularization
   assert (stddev is None) != (constant is None), 'Stddev and constant cannot both be None: one determines the initializer used.'
   with tf.device('/cpu:0'):
     if stddev is not None:
@@ -164,7 +155,7 @@ def inference(images, train_phase, keep_prob):
     biases = make_var('biases', [6], constant=0.05)
     pre_activation = tf.nn.bias_add(conv, biases)
     post_activation = tf.nn.relu(pre_activation)
-    conv1 = spatial_batch_norm(post_activation, train_phase, name=scope.name)
+    conv1 = spatial_batch_norm(post_activation, train_phase, name=scope.name, scope=scope)
 
   # pool1 (2x2) 
   pool1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
@@ -178,7 +169,7 @@ def inference(images, train_phase, keep_prob):
     biases = make_var('biases', [16], constant=0.1)
     pre_activation = tf.nn.bias_add(conv, biases)
     post_activation = tf.nn.relu(pre_activation)
-    conv2 = spatial_batch_norm(post_activation, train_phase, name=scope.name)
+    conv2 = spatial_batch_norm(post_activation, train_phase, name=scope.name, scope=scope)
 
 
   # pool2 
@@ -221,13 +212,15 @@ def loss(logits, labels):
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels, name='xent')
   return tf.reduce_mean(cross_entropy, name='mean_xent')
 
-def training(total_loss, learning_rate):
+def training(total_loss, initial_learning_rate):
   # Note: this isn't called over and over again when training; it's called
   # once to build this part of the computational graph; the operations created
   # here are repeated, which themselves increment global_step, update gradients, etc.
   # (Only train_op which performs a minimizing update is repeated.)
-  optimizer = tf.train.GradientDescentOptimizer(learning_rate)
   global_step = tf.Variable(0, name='global_step', trainable=False)
+  learning_rate = tf.train.exponential_decay(initial_learning_rate, global_step,
+                              decay_steps=100000, decay_rate=0.96, staircase=True) # staircase means decay steps/rate is integer division
+  optimizer = tf.train.GradientDescentOptimizer(learning_rate)
   train_op = optimizer.minimize(total_loss, global_step=global_step)
   return train_op
 
