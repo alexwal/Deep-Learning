@@ -122,6 +122,7 @@ def inference(images):
   '''Compute inference on the model inputs to make a prediction.'''
 
   '''
+    LeNet:
     model:add(nn.SpatialConvolution(3, 6, 5, 5)) 
     model:add(nn.ReLU())
     model:add(nn.SpatialMaxPooling(2, 2, 2, 2))

@@ -37,12 +37,13 @@ sqrt = math.sqrt
 
 # Helper classes for obtaining batches from data and creating datasets
 
-class BatchProvider(object):
-  def __init__(self, data, labels, shuffle=True):
+class BatchProvider(object): # aka a single 'data_set' (train or test)
+  def __init__(self, data, labels, is_train, shuffle=True):
     assert len(data) == len(labels), 'Every data point must have a corresponding label (first dimensions must match).'
     self.data = data
     self.labels = labels
     self.idx = 0
+    self.is_train = is_train
     if shuffle:
       indices = np.random.permutation(len(data))
       self.data = self.data[indices]
@@ -75,8 +76,8 @@ class Read_data_sets(object):
     test_data = np.load(os.path.join(data_dir, test_data_file)) 
     test_labels = np.load(os.path.join(data_dir, test_labels_file)) - 1
     # Create batch providers
-    self.train = BatchProvider(train_data, train_labels) # usage ex: Read_data_sets.train.next_batch(batch_size)
-    self.test = BatchProvider(test_data, test_labels)
+    self.train = BatchProvider(train_data, train_labels, is_train=True) # usage ex: Read_data_sets.train.next_batch(batch_size)
+    self.test = BatchProvider(test_data, test_labels, is_train=False)
 
 # Read test and train data set files
 data_sets = Read_data_sets('small-cifar10-data/', 
@@ -86,10 +87,37 @@ data_sets = Read_data_sets('small-cifar10-data/',
 classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 batch_size = 16
 default_dtype = tf.float32
-default_learning_rate = 1e-3
+default_learning_rate = 1e-2
 im_H, im_W = 32, 32
 
 # UTILS:
+if True:
+  d = np.ones((4, 2, 2, 3))
+  for i in range(len(d)):
+    d[i] *= i
+  d = tf.cast(d, tf.float32)
+  m, v = tf.nn.moments(d, axes=[0, 1, 2])
+  d = (d - m) / tf.sqrt(v)
+  apples
+
+def spatial_batch_norm(inputs, train_phase, decay=0.999, name="SBN", epsilon=1e-3):
+    # train_phase: a tf.placeholder(tf.bool) that switches between training/testing (ie using batch or pop mean/var)
+    channels = inputs.get_shape()[-1]
+    scale = tf.Variable(tf.ones([channels]))
+    offset = tf.Variable(tf.zeros([channels]))
+    pop_mean = tf.Variable(tf.zeros([channels]), trainable=False)
+    pop_var = tf.Variable(tf.ones([channels]), trainable=False)
+    def if_train():
+        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # compute mean across these axes (all but channels)
+        # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
+        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
+        train_var  = tf.assign(pop_var,  pop_var  * decay + batch_var  * (1 - decay))
+        with tf.control_dependencies([train_mean, train_var]): # makes sure the moving averages are updated during training (absent below:)
+          return tf.identity(batch_mean), tf.identity(batch_var)
+    def if_not_train():
+        return tf.identity(pop_mean), tf.identity(pop_var)
+    mean, var = tf.cond(train_phase, if_train, if_not_train)
+    return tf.nn.batch_normalization(inputs, mean, var, offset, scale, epsilon, name=name)
 
 def make_var(name, shape, stddev=None, constant=None):
   # On CPU. Later: add weight regularization
@@ -102,14 +130,15 @@ def make_var(name, shape, stddev=None, constant=None):
     var = tf.get_variable(name, shape, initializer=initializer, dtype=default_dtype)
   return var
 
-def fill_feed_dict(data_set, images_pl, labels_pl):
+def fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl):
   batch = data_set.next_batch(batch_size)
-  return {images_pl: batch[0], labels_pl: batch[1]}
+  return {images_pl: batch[0], labels_pl: batch[1], train_phase_pl: data_set.is_train}
 
 def placeholder_inputs():
   images_pl = tf.placeholder(default_dtype, shape=[None, im_H, im_W, 3])
   labels_pl = tf.placeholder(tf.int32, shape=[None]) 
-  return images_pl, labels_pl
+  train_phase_pl = tf.placeholder(tf.bool, name='train_phase')
+  return images_pl, labels_pl, train_phase_pl
 
 # STAGES:
 
@@ -118,10 +147,11 @@ def inputs(data_set):
   image_batch, label_batch = data_set.next_batch(batch_size)
   return image_batch, label_batch
 
-def inference(images):
+def inference(images, train_phase):
   '''Compute inference on the model inputs to make a prediction.'''
 
   '''
+    LeNet:
     model:add(nn.SpatialConvolution(3, 6, 5, 5)) 
     model:add(nn.ReLU())
     model:add(nn.SpatialMaxPooling(2, 2, 2, 2))
@@ -144,8 +174,9 @@ def inference(images):
     conv = tf.nn.conv2d(images, kernel, strides=[1, 1, 1, 1], padding='VALID') # For VALID conv: output dims: int((inW - kW)/stride + 1)
     biases = make_var('biases', [6], constant=0.05)
     pre_activation = tf.nn.bias_add(conv, biases)
-    # Spatial Batch Norm here?
-    conv1 = tf.nn.relu(pre_activation, name=scope.name)
+    post_activation = tf.nn.relu(pre_activation)
+    conv1 = spatial_batch_norm(post_activation, train_phase, name=scope.name)
+    
 
   # pool1 (2x2) 
   pool1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
@@ -158,8 +189,8 @@ def inference(images):
     conv = tf.nn.conv2d(pool1, kernel, strides=[1, 1, 1, 1], padding='VALID')
     biases = make_var('biases', [16], constant=0.1)
     pre_activation = tf.nn.bias_add(conv, biases)
-    # Spatial Batch Norm here?
-    conv2 = tf.nn.relu(pre_activation, name=scope.name)
+    post_activation = tf.nn.relu(pre_activation)
+    conv2 = spatial_batch_norm(post_activation, train_phase, name=scope.name)
 
 
   # pool2 
@@ -218,7 +249,7 @@ def evaluation(logits, labels):
 
 ###
 
-def do_eval(sess, eval_correct, images_pl, labels_pl, data_set, max_batches=None):
+def do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_set, max_batches=None):
   '''Evaluation over one epoch (all samples) in data_set.'''
   num_batches = len(data_set) // batch_size
   if max_batches is not None:
@@ -226,15 +257,15 @@ def do_eval(sess, eval_correct, images_pl, labels_pl, data_set, max_batches=None
   num_samples = num_batches * batch_size
   correct_count = 0
   for batch in xrange(num_batches):
-    feed_dict = fill_feed_dict(data_set, images_pl, labels_pl)
+    feed_dict = fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl)
     correct_count += sess.run(eval_correct, feed_dict=feed_dict) # sess.run(WHAT_YOU_WANT_TO_KNOW, WHAT_YOU_NEED_TO_PROVIDE)
   accuracy = float(correct_count) / num_samples
   print('Num samples: %d, Num correct: %d, Accuracy: %0.04f' % (num_samples, correct_count, accuracy))
 
 def run_training():
   # Build graph
-  images_pl, labels_pl = placeholder_inputs()
-  logits = inference(images_pl)
+  images_pl, labels_pl, train_phase_pl = placeholder_inputs()
+  logits = inference(images_pl, train_phase_pl)
   total_loss = loss(logits, labels_pl)
   train_op = training(total_loss, default_learning_rate)
   eval_correct = evaluation(logits, labels_pl)
@@ -246,21 +277,21 @@ def run_training():
 
   # Perform training and evaluation
   for step in xrange(5000):
-    feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl) # each step trains on a single batch
+    feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl, train_phase_pl) # each step trains on a single batch
     _, train_loss_value = sess.run([train_op, total_loss], feed_dict=feed_dict) # discard train_op run output
 
-    if step % 500 == 0:
+    if step % 200 == 0:
       print("\nStep %d, step train_loss_value: %0.06f" % (step, train_loss_value))
       print("==> Evaluating training data:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, data_sets.train, max_batches=10)
+      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, max_batches=10)
       print("==> Evaluating testing data:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, data_sets.test, max_batches=10)
+      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, max_batches=10)
 
   print("\nFinal results:")
   print("==> Evaluating training data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, data_sets.train)
+  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train)
   print("==> Evaluating testing data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, data_sets.test)
+  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test)
 
 if __name__ == '__main__':
   run_training()
