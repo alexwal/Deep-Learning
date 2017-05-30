@@ -231,18 +231,23 @@ def evaluation(logits, labels):
 
 ###
 
-def do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_set, keep_prob_pl, keep_prob=1.0, max_batches=None):
+def do_eval(sess, eval_correct, eval_loss, images_pl, labels_pl, train_phase_pl, data_set, keep_prob_pl, keep_prob=1.0, max_batches=None):
   '''Evaluation over one epoch (all samples) in data_set.'''
   num_batches = len(data_set) // batch_size
   if max_batches is not None:
     num_batches = min(num_batches, max_batches)
   num_samples = num_batches * batch_size
-  correct_count = 0
+  correct_count, total_loss = 0, 0
   for batch in xrange(num_batches):
     feed_dict = fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl, keep_prob_pl, keep_prob)
-    correct_count += sess.run(eval_correct, feed_dict=feed_dict) # sess.run(WHAT_YOU_WANT_TO_KNOW, WHAT_YOU_NEED_TO_PROVIDE)
+    # sess.run(WHAT_YOU_WANT_TO_KNOW, WHAT_YOU_NEED_TO_PROVIDE)
+    batch_correct, batch_loss = sess.run([eval_correct, eval_loss], feed_dict=feed_dict)
+    correct_count += batch_correct 
+    total_loss += batch_loss
   accuracy = float(correct_count) / num_samples
-  print('Num samples: %d, Num correct: %d, Accuracy: %0.04f' % (num_samples, correct_count, accuracy))
+  total_loss = float(total_loss) / num_batches
+  print('Num samples: %d, Num correct: %d, Accuracy: %0.04f, Loss: %0.04f'
+         % (num_samples, correct_count, accuracy, total_loss))
 
 def run_training():
   # Build graph
@@ -262,18 +267,18 @@ def run_training():
     feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl, train_phase_pl, keep_prob_pl, keep_prob=0.5)
     _, train_loss_value = sess.run([train_op, total_loss], feed_dict=feed_dict) # discard train_op run output
 
-    if step % 200 == 0:
+    if step % 300 == 0:
       print("\nStep %d, step train_loss_value: %0.06f" % (step, train_loss_value))
       print("==> Evaluating random training batch:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl, max_batches=10)
+      do_eval(sess, eval_correct, total_loss, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl, max_batches=10)
       print("==> Evaluating random testing batch:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl, max_batches=10)
+      do_eval(sess, eval_correct, total_loss, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl, max_batches=10)
 
   print("\nFinal results:")
   print("==> Evaluating training data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl)
+  do_eval(sess, eval_correct, total_loss, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl)
   print("==> Evaluating testing data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl)
+  do_eval(sess, eval_correct, total_loss, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl)
 
 if __name__ == '__main__':
   run_training()
