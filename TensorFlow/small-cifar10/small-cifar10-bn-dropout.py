@@ -43,6 +43,7 @@ class BatchProvider(object): # aka a single 'data_set' (train or test)
     self.labels = labels
     self.idx = 0
     self.is_train = is_train
+    self.shuffle = shuffle 
     if shuffle:
       indices = np.random.permutation(len(data))
       self.data = self.data[indices]
@@ -54,8 +55,12 @@ class BatchProvider(object): # aka a single 'data_set' (train or test)
     batch_labels = self.labels[idx:idx + batch_size]
     self.idx += batch_size
     if len(batch) < batch_size: # self.idx is past end of data.
-      # maybe re-shuffle data now?
-      # print('Reached end of data. Extending this batch by wrapping around to front.')
+      # Extending this batch by wrapping around to front.
+      if self.shuffle:
+        # First reshuffle data (so that batches aren't always revisted in the same order) 
+        indices = np.random.permutation(len(data))
+        self.data = self.data[indices]
+        self.labels = self.labels[indices]
       self.idx = self.idx % len(self.data)
       additional_data = self.data[:self.idx]
       additional_labels = self.labels[:self.idx]
