@@ -45,25 +45,21 @@ class BatchProvider(object): # aka a single 'data_set' (train or test)
     self.is_train = is_train
     self.shuffle = shuffle 
     if shuffle:
-      indices = np.random.permutation(len(data))
-      self.data = self.data[indices]
-      self.labels = self.labels[indices]
+      self.indices = np.random.permutation(len(data))
 
   def next_batch(self, batch_size):
     idx = self.idx
-    batch = self.data[idx:idx + batch_size]
-    batch_labels = self.labels[idx:idx + batch_size]
+    batch = self.data[self.indices[idx:idx + batch_size]]
+    batch_labels = self.labels[self.indices[idx:idx + batch_size]]
     self.idx += batch_size
     if len(batch) < batch_size: # self.idx is past end of data.
       # Extending this batch by wrapping around to front.
       if self.shuffle:
-        # First reshuffle data (so that batches aren't always revisted in the same order) 
-        indices = np.random.permutation(len(data))
-        self.data = self.data[indices]
-        self.labels = self.labels[indices]
+        # First reshuffle data order (so that batches aren't always revisted in the same order) 
+        self.indices = np.random.permutation(len(self.data))
       self.idx = self.idx % len(self.data)
-      additional_data = self.data[:self.idx]
-      additional_labels = self.labels[:self.idx]
+      additional_data = self.data[self.indices[:self.idx]]
+      additional_labels = self.labels[self.indices[:self.idx]]
       batch = np.concatenate((batch, additional_data))
       batch_labels = np.concatenate((batch_labels, additional_labels))
     return batch, batch_labels
@@ -159,23 +155,7 @@ def inputs(data_set):
 
 def inference(images, train_phase, keep_prob):
   '''Compute inference on the model inputs to make a prediction.'''
-
-  '''
-    LeNet:
-    model:add(nn.SpatialConvolution(3, 6, 5, 5)) 
-    model:add(nn.ReLU())
-    model:add(nn.SpatialMaxPooling(2, 2, 2, 2))
-    model:add(nn.SpatialConvolution(6, 16, 5, 5))
-    model:add(nn.ReLU())
-    model:add(nn.SpatialMaxPooling(2, 2, 2, 2))
-    model:add(nn.View(16*5*5))
-    model:add(nn.Linear(16*5*5, 120))
-    model:add(nn.ReLU())
-    model:add(nn.Linear(120, 84))
-    model:add(nn.ReLU())
-    model:add(nn.Linear(84, 10))
-    model:add(nn.LogSoftMax())
-  '''
+  # Uses LeNet model with Spatial Batch Norm and Dropout.
 
   # conv1 [32 x 32 x 3 -> ] 
   with tf.variable_scope('conv1') as scope:
@@ -291,9 +271,9 @@ def run_training():
 
     if step % 200 == 0:
       print("\nStep %d, step train_loss_value: %0.06f" % (step, train_loss_value))
-      print("==> Evaluating training data:")
+      print("==> Evaluating random training batch:")
       do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl, max_batches=10)
-      print("==> Evaluating testing data:")
+      print("==> Evaluating random testing batch:")
       do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl, max_batches=10)
 
   print("\nFinal results:")
