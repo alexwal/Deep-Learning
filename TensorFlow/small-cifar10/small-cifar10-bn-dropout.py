@@ -90,14 +90,6 @@ default_learning_rate = 1e-2
 default_dtype = tf.float32
 
 # UTILS:
-if 0:
-  d = np.ones((4, 2, 2, 3))
-  for i in range(len(d)):
-    d[i] *= i
-  d = tf.cast(d, tf.float32)
-  m, v = tf.nn.moments(d, axes=[0, 1, 2])
-  d = (d - m) / tf.sqrt(v)
-  apples
 
 def spatial_batch_norm(inputs, train_phase, decay=0.999, name="SBN", epsilon=1e-3):
     # train_phase: a tf.placeholder(tf.bool) that switches between training/testing (ie using batch or pop mean/var)
@@ -129,15 +121,16 @@ def make_var(name, shape, stddev=None, constant=None):
     var = tf.get_variable(name, shape, initializer=initializer, dtype=default_dtype)
   return var
 
-def fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl):
+def fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl, keep_prob_pl, keep_prob):
   batch = data_set.next_batch(batch_size)
-  return {images_pl: batch[0], labels_pl: batch[1], train_phase_pl: data_set.is_train}
+  return {images_pl: batch[0], labels_pl: batch[1], train_phase_pl: data_set.is_train, keep_prob_pl: keep_prob}
 
 def placeholder_inputs():
   images_pl = tf.placeholder(default_dtype, shape=[None, im_H, im_W, 3])
   labels_pl = tf.placeholder(tf.int32, shape=[None]) 
   train_phase_pl = tf.placeholder(tf.bool, name='train_phase')
-  return images_pl, labels_pl, train_phase_pl
+  keep_prob_pl = tf.placeholder(tf.float32)
+  return images_pl, labels_pl, train_phase_pl, keep_prob_pl
 
 # STAGES:
 
@@ -146,7 +139,7 @@ def inputs(data_set):
   image_batch, label_batch = data_set.next_batch(batch_size)
   return image_batch, label_batch
 
-def inference(images, train_phase):
+def inference(images, train_phase, keep_prob):
   '''Compute inference on the model inputs to make a prediction.'''
 
   '''
@@ -178,11 +171,12 @@ def inference(images, train_phase):
   # pool1 (2x2) 
   pool1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                          padding='VALID', name='pool1')
+  dropout1 = tf.nn.dropout(pool1, keep_prob)
 
   # conv2 
   with tf.variable_scope('conv2') as scope:
     kernel = make_var('weights', [5, 5, 6, 16], stddev=sqrt(1.0 / (5 * 5 * 6)))
-    conv = tf.nn.conv2d(pool1, kernel, strides=[1, 1, 1, 1], padding='VALID')
+    conv = tf.nn.conv2d(dropout1, kernel, strides=[1, 1, 1, 1], padding='VALID')
     biases = make_var('biases', [16], constant=0.1)
     pre_activation = tf.nn.bias_add(conv, biases)
     post_activation = tf.nn.relu(pre_activation)
@@ -192,25 +186,26 @@ def inference(images, train_phase):
   # pool2 
   pool2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
                          padding='VALID', name='pool2')
+  dropout2 = tf.nn.dropout(pool2, keep_prob)
 
   # fc1 
   with tf.variable_scope('fc1') as scope:
-    flattened = tf.reshape(pool2, [-1, 5 * 5 * 16])
-    # Dropout/keep_prob?
+    flattened = tf.reshape(dropout2, [-1, 5 * 5 * 16])
     W = make_var('weights', [5 * 5 * 16, 120], stddev=sqrt(1.0 / (5 * 5 * 16)))
     linear = tf.matmul(flattened, W)
     biases = make_var('biases', [120], constant=0.1)
     pre_activation = tf.add(linear, biases)
-    fc1 = tf.nn.relu(pre_activation, name=scope.name)
+    post_activation = tf.nn.relu(pre_activation, name=scope.name)
+    fc1 = tf.nn.dropout(post_activation, keep_prob)
 
   # fc2 
   with tf.variable_scope('fc2') as scope:
-    # Dropout/keep_prob?
     W = make_var('weights', [120, 84], stddev=sqrt(1.0 / 120)) 
     linear = tf.matmul(fc1, W)
     biases = make_var('biases', [84], constant=0.1)
     pre_activation = tf.add(linear, biases)
-    fc2 = tf.nn.relu(pre_activation, name=scope.name)
+    post_activation = tf.nn.relu(pre_activation, name=scope.name)
+    fc2 = tf.nn.dropout(post_activation, keep_prob)
 
   # logits [-> num_classes=10]
   with tf.variable_scope('logits') as scope:
@@ -245,7 +240,7 @@ def evaluation(logits, labels):
 
 ###
 
-def do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_set, max_batches=None):
+def do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_set, keep_prob_pl, keep_prob=1.0, max_batches=None):
   '''Evaluation over one epoch (all samples) in data_set.'''
   num_batches = len(data_set) // batch_size
   if max_batches is not None:
@@ -253,15 +248,15 @@ def do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_set, 
   num_samples = num_batches * batch_size
   correct_count = 0
   for batch in xrange(num_batches):
-    feed_dict = fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl)
+    feed_dict = fill_feed_dict(data_set, images_pl, labels_pl, train_phase_pl, keep_prob_pl, keep_prob)
     correct_count += sess.run(eval_correct, feed_dict=feed_dict) # sess.run(WHAT_YOU_WANT_TO_KNOW, WHAT_YOU_NEED_TO_PROVIDE)
   accuracy = float(correct_count) / num_samples
   print('Num samples: %d, Num correct: %d, Accuracy: %0.04f' % (num_samples, correct_count, accuracy))
 
 def run_training():
   # Build graph
-  images_pl, labels_pl, train_phase_pl = placeholder_inputs()
-  logits = inference(images_pl, train_phase_pl)
+  images_pl, labels_pl, train_phase_pl, keep_prob_pl = placeholder_inputs()
+  logits = inference(images_pl, train_phase_pl, keep_prob_pl)
   total_loss = loss(logits, labels_pl)
   train_op = training(total_loss, default_learning_rate)
   eval_correct = evaluation(logits, labels_pl)
@@ -272,22 +267,22 @@ def run_training():
   sess.run(init)
 
   # Perform training and evaluation
-  for step in xrange(5000):
-    feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl, train_phase_pl) # each step trains on a single batch
+  for step in xrange(5000): # each step trains on a single batch
+    feed_dict = fill_feed_dict(data_sets.train, images_pl, labels_pl, train_phase_pl, keep_prob_pl, keep_prob=0.5)
     _, train_loss_value = sess.run([train_op, total_loss], feed_dict=feed_dict) # discard train_op run output
 
     if step % 200 == 0:
       print("\nStep %d, step train_loss_value: %0.06f" % (step, train_loss_value))
       print("==> Evaluating training data:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, max_batches=10)
+      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl, max_batches=10)
       print("==> Evaluating testing data:")
-      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, max_batches=10)
+      do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl, max_batches=10)
 
   print("\nFinal results:")
   print("==> Evaluating training data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train)
+  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.train, keep_prob_pl)
   print("==> Evaluating testing data:")
-  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test)
+  do_eval(sess, eval_correct, images_pl, labels_pl, train_phase_pl, data_sets.test, keep_prob_pl)
 
 if __name__ == '__main__':
   run_training()
