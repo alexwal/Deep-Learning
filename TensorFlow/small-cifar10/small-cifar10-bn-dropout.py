@@ -96,10 +96,10 @@ def spatial_batch_norm(inputs, train_phase, decay=0.999, name="SBN", epsilon=1e-
     channels = inputs.get_shape()[-1]
     scale = tf.Variable(tf.ones([channels]))
     offset = tf.Variable(tf.zeros([channels]))
-    pop_mean = tf.Variable(tf.zeros([channels]), trainable=False)
-    pop_var = tf.Variable(tf.ones([channels]), trainable=False)
+
+    ''' OLD:
     def if_train():
-        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # compute mean across these axes (all but channels)
+        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # computes mean across these axes (all but over channels)
         # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
         train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
         train_var  = tf.assign(pop_var,  pop_var  * decay + batch_var  * (1 - decay))
@@ -107,6 +107,19 @@ def spatial_batch_norm(inputs, train_phase, decay=0.999, name="SBN", epsilon=1e-
           return tf.identity(batch_mean), tf.identity(batch_var)
     def if_not_train():
         return tf.identity(pop_mean), tf.identity(pop_var)
+    '''
+
+    # NEW:
+    batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2]) # computes mean across these axes (all but over channels)
+    ema = tf.train.ExponentialMovingAverage(decay=0.75)
+    def if_train():
+        # Exponential Mov. Avg. Decay (compute moving average of population, update as batches are seen.)
+        maintain_averages_op = ema.apply([batch_mean, batch_var]) # creates shadow variables (holding averages) for all list elements
+        # Create an op that will update the moving averages before performing normalization. 
+        with tf.control_dependencies([maintain_averages_op]): # makes sure the moving averages are updated during training (absent below:)
+          return tf.identity(batch_mean), tf.identity(batch_var)
+    def if_not_train():
+        return ema.average(batch_mean), ema.average(batch_var) # returns the tracked average of batch mean/var = approx. pop mean/var.
     mean, var = tf.cond(train_phase, if_train, if_not_train)
     return tf.nn.batch_normalization(inputs, mean, var, offset, scale, epsilon, name=name)
 
